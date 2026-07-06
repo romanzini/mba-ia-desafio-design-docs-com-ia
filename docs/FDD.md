@@ -600,6 +600,140 @@ if (response.ok) {
 - `webhook.dlq` - Contador
 - `webhook.dispatch.duration_ms` - Histograma
 
+### Tracing Distribuído
+
+Implementação de tracing para rastreamento de requisições end-to-end:
+
+**Padrão de Propagação:**
+```typescript
+// Endpoint POST /webhooks (criar webhook)
+export const authenticate: RequestHandler = (req, _res, next) => {
+  const traceId = req.headers['x-trace-id'] ?? generateUUID();
+  const spanId = generateUUID();
+  
+  req.id = traceId; // Propagado para todo o request
+  
+  const childLogger = logger.child({ 
+    traceId, 
+    spanId,
+    module: 'webhook-api' 
+  });
+  
+  childLogger.info({
+    action: 'webhook_api_request',
+    method: req.method,
+    path: req.path,
+  }, 'API request started');
+  
+  next();
+};
+
+// Em webhook.service.ts (criar webhook)
+private logger = logger.child({ module: 'webhook-service' });
+
+async create(input: CreateWebhookInput, userId: string): Promise<Webhook> {
+  const spanId = generateUUID();
+  const childLogger = this.logger.child({ spanId });
+  
+  childLogger.info({
+    webhookId: webhook.id,
+    customerId: webhook.customerId,
+    action: 'webhook_creation_started',
+  }, 'Creating webhook');
+  
+  // ... criação do webhook
+  
+  childLogger.info({
+    webhookId: webhook.id,
+    durationMs: elapsed,
+    action: 'webhook_creation_completed',
+  }, 'Webhook created successfully');
+}
+
+// Em order.service.ts (changeStatus → publishWebhookEvent)
+async changeStatus(id: string, input: UpdateOrderStatusInput, userId: string): Promise<OrderWithRelations> {
+  const traceId = req.id;
+  const spanId = generateUUID();
+  const childLogger = logger.child({ traceId, spanId, module: 'order-service' });
+  
+  return this.prisma.$transaction(async (tx) => {
+    childLogger.info({
+      orderId: id,
+      action: 'status_change_started',
+      fromStatus: order.status,
+      toStatus: input.toStatus,
+    }, 'Order status change initiated');
+    
+    // ... mudança de status
+    
+    // Chamada para publicar eventos webhook
+    await publishWebhookEvent(tx, order, fromStatus, toStatus);
+    
+    childLogger.info({
+      orderId: id,
+      action: 'webhook_events_published',
+      eventCount: events.length,
+    }, 'Webhook events published');
+  });
+}
+
+// Em worker (src/worker.ts)
+const workerLogger = logger.child({ module: 'webhook-worker' });
+
+const event = // fetch from outbox
+const traceId = event.traceId ?? generateUUID();
+const spanId = generateUUID();
+const childLogger = workerLogger.child({ traceId, spanId });
+
+childLogger.info({
+  eventId: event.eventId,
+  webhookId: event.webhookId,
+  action: 'webhook_dispatch_started',
+  retryCount: event.retryCount,
+}, 'Dispatching webhook');
+
+try {
+  const startTime = Date.now();
+  const response = await fetch(webhook.url, { /* ... */ });
+  const durationMs = Date.now() - startTime;
+  
+  if (response.ok) {
+    childLogger.info({
+      eventId: event.eventId,
+      status: response.status,
+      durationMs,
+      action: 'webhook_dispatch_succeeded',
+    }, 'Webhook delivered successfully');
+  } else {
+    childLogger.warn({
+      eventId: event.eventId,
+      status: response.status,
+      durationMs,
+      retryCount: event.retryCount,
+      action: 'webhook_dispatch_failed_will_retry',
+    }, 'Webhook delivery failed, will retry');
+  }
+} catch (error) {
+  childLogger.error({
+    eventId: event.eventId,
+    error: error.message,
+    action: 'webhook_dispatch_error',
+  }, 'Webhook dispatch error');
+}
+```
+
+**Headers de Propagação:**
+- `X-Trace-Id`: ID único da transação end-to-end
+- `X-Span-Id`: ID do segmento atual da transação
+- `X-Parent-Span-Id`: ID do segmento pai
+
+**Campos Obrigatórios em Cada Log:**
+- `traceId`: Para correlação global
+- `spanId`: Para correlação local (função/operação)
+- `module`: Origem do log
+- `action`: Nome descritivo da ação
+- `timestamp`: ISO 8601 (automático no Pino)
+
 ---
 
 ## Critérios de Aceite Técnicos
@@ -617,5 +751,7 @@ if (response.ok) {
 - [ ] X-Event-Id gerado e enviado
 - [ ] Rotação de secret com 24h grace period
 - [ ] Replay de DLQ funciona
-- [ ] Logs com Pino
+- [ ] Logs com Pino (estruturados, contexto)
+- [ ] Tracing distribuído com X-Trace-Id e X-Span-Id
+- [ ] Propagação de trace em chamadas síncronas e assíncronas
 - [ ] Todas as classes AppError implementadas

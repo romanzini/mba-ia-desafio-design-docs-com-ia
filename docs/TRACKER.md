@@ -103,6 +103,11 @@ Mapa de origem de cada item registrado nos documentos de design. Permite validar
 | FDD-LOGGER-CONTEXT | FDD.md | Detalhe | Logger Pino com contexto module + event_id | TRANSCRICAO | [09:29] Bruno (implícito: padrão Pino) |
 | FDD-REQUIREROLE-ADMIN | FDD.md | Integração | Endpoint replay usa requireRole('ADMIN') | TRANSCRICAO | [09:36] Sofia & Larissa |
 | FDD-AUDIT-REPLAY | FDD.md | Detalhe | Log de auditoria para replay de DLQ | TRANSCRICAO | [09:36] Sofia: "logar quem fez o replay, pra auditoria" |
+| FDD-CHANGESTATUS-WEBHOOK | FDD.md | Integração | changeStatus chama publishWebhookEvent dentro da transação | CODIGO | src/modules/orders/order.service.ts (linha 126) |
+| FDD-APPERROR-BASE | FDD.md | Detalhe | AppError como classe base com statusCode, errorCode, details | CODIGO | src/shared/errors/app-error.ts |
+| FDD-LOGGER-PINO-IMPL | FDD.md | Observabilidade | Logger Pino configurado com redação de secrets, timestamps ISO, context | CODIGO | src/shared/logger/index.ts |
+| FDD-REQUIREROLE-IMPL | FDD.md | Integração | requireRole middleware para proteção de endpoints admin | CODIGO | src/middlewares/auth.middleware.ts (linha 38) |
+| FDD-DI-PATTERN-IMPL | FDD.md | Integração | Padrão de Dependency Injection em buildControllers | CODIGO | src/app.ts (linha 17) |
 
 ---
 
@@ -116,8 +121,8 @@ Mapa de origem de cada item registrado nos documentos de design. Permite validar
 | Decisões Arquiteturais | 18 | 18 | 100% |
 | Detalhes Técnicos | 24 | 24 | 100% |
 | Fluxos e Contratos | 17 | 17 | 100% |
-| Integrações com Código | 6 | 6 | 100% |
-| **TOTAL** | **88** | **88** | **100%** |
+| Integrações com Código | 11 | 11 | 100% |
+| **TOTAL** | **93** | **93** | **100%** |
 
 ---
 
@@ -139,10 +144,15 @@ Mapa de origem de cada item registrado nos documentos de design. Permite validar
 - Cobertura: 100% das decisões principais discutidas
 
 ### Código (src/)
-- `src/modules/orders/order.service.ts` - changeStatus method
-- `src/shared/errors/app-error.ts` - AppError base class
-- `src/shared/logger/index.ts` - Pino logger
-- `src/middlewares/error.middleware.ts` - Error handling
-- `src/middlewares/auth.middleware.ts` - Authentication & requireRole
-- `src/config/database.ts` - Prisma client
-- `src/app.ts` - Dependency injection pattern
+
+**Integração com Webhooks:**
+- `src/modules/orders/order.service.ts` - Método `changeStatus` (linha 126) - Chamada de `publishWebhookEvent` dentro da transação
+- `src/shared/errors/app-error.ts` - Classe base `AppError` - Herança para WEBHOOK_* erros
+- `src/shared/logger/index.ts` - Logger Pino configurado - Estrutura de logs com redação de secrets, timestamps ISO, contexto
+- `src/middlewares/auth.middleware.ts` - Middleware `requireRole` (linha 38) - Proteção de endpoints admin para replay de DLQ
+- `src/app.ts` - Padrão de Dependency Injection em `buildControllers` (linha 17) - Integração de WebhookService e WebhookController
+
+**Suporte:**
+- `src/middlewares/error.middleware.ts` - Error handling centralizado
+- `src/config/database.ts` - Prisma client para transações
+
